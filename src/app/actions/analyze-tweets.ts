@@ -1,14 +1,51 @@
 // src/app/actions/analyze-tweets.ts
 "use server";
-import "server-only"; // Ensures this code only runs on the server
+import "server-only";
 import { dedent } from "ts-dedent";
 import { google } from "@ai-sdk/google";
 import { CoreMessage, generateObject } from "ai";
 import { z } from "zod";
-import { getCachedData, setCachedData } from "@/lib/redis"; // Adjust path
-import { fetchTwitterProfile } from "@/lib/fetch-twitter-profile"; // Adjust path
-import { logger } from "@/lib/logger"; // Adjust path
+import { getCachedData, setCachedData } from "@/lib/redis";
+import { logger } from "@/lib/logger";
+import { getTwitterScraper } from "@/lib/twitter-scraper-service";
 
+// Type guard to check if error has a status property
+function hasStatus(error: unknown): error is { status: number } {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "status" in error &&
+    typeof (error as { status: unknown }).status === "number"
+  );
+}
+
+// Define interfaces for Twitter scraper data
+interface ScraperProfile {
+  name?: string;
+  description?: string; // Common field for bio
+  location?: string;
+  followersCount?: number;
+  tweetsCount?: number;
+  avatar?: string; // From agent-twitter-client README
+  profile_image_url_https?: string; // Fallback from Twitter API
+}
+
+interface ScraperTweet {
+  text: string;
+  created_at?: string; // ISO string
+  timeParsed?: Date; // Possible parsed date from scraper
+  timestamp?: number; // Possible Unix timestamp
+  favorite_count?: number;
+  retweet_count?: number;
+  reply_count?: number; // Common but not guaranteed
+  quote_count?: number; // Common but not guaranteed
+  is_quote_status?: boolean;
+  quoted_status_id_str?: string;
+  quotedStatus?: unknown; // Minimal handling for quoted status
+  is_retweet?: boolean;
+}
+
+// Define schema for alignment analysis
 const AlignmentSchema = z.object({
   explanation: z
     .string()
@@ -29,152 +66,235 @@ const AlignmentSchema = z.object({
 
 export type AlignmentAnalysis = z.infer<typeof AlignmentSchema>;
 
-// This is the type that will be returned to the client
 export type AlignmentAnalysisResult = AlignmentAnalysis & {
   cached: boolean;
   isError: boolean;
-  // username: string; // Optionally include username if needed by client directly from this result
+  avatarUrl?: string;
 };
+
+// Internal types for AI processing
+interface InternalTweet {
+  text: string;
+  created_at: string; // ISO string
+  favorite_count: number;
+  retweet_count: number;
+  reply_count: number;
+  quote_count: number;
+  is_quote_status: boolean;
+}
+
+interface InternalProfileForAI {
+  name?: string;
+  bio?: string;
+  location?: string;
+  followers_count?: number;
+  statuses_count?: number;
+  tweets: InternalTweet[];
+}
 
 export async function analyseUser(
   username: string
 ): Promise<AlignmentAnalysisResult> {
   const cleanUsername = username.trim().replace(/^@/, "");
-  const cacheKey = `analysis-gemini-v3:${cleanUsername}`; // Use a versioned cache key
+  const cacheKey = `analysis-gemini-v3:${cleanUsername}`;
 
   try {
-    const cachedAnalysis = await getCachedData<AlignmentAnalysis>(cacheKey);
-
-    if (cachedAnalysis) {
+    const cachedAnalysisData =
+      await getCachedData<AlignmentAnalysisResult>(cacheKey);
+    if (cachedAnalysisData?.explanation && !cachedAnalysisData.isError) {
       logger.info(
         { username: cleanUsername },
         `Using cached analysis for @${cleanUsername}`
       );
-      // waitUntil(track("analysis_cached", { // If using Vercel Analytics
-      //   username: cleanUsername,
-      //   lawful_chaotic: cachedAnalysis.lawfulChaotic,
-      //   good_evil: cachedAnalysis.goodEvil,
-      // }));
-      return { ...cachedAnalysis, cached: true, isError: false };
+      return { ...cachedAnalysisData, cached: true, isError: false };
     }
 
     logger.info(
       { username: cleanUsername },
-      `Analyzing tweets for @${cleanUsername}`
+      `Fetching Twitter data for @${cleanUsername} using agent-twitter-client`
     );
 
-    const profile = await fetchTwitterProfile(cleanUsername); // Pass cleanUsername
-    if (!profile) {
-      logger.warn(
-        { username: cleanUsername },
-        `No profile found by fetchTwitterProfile for @${cleanUsername}`
+    let userProfileData: ScraperProfile | undefined;
+    const userTweetsData: ScraperTweet[] = [];
+    let fetchedAvatarUrl: string | undefined;
+
+    try {
+      const scraper = await getTwitterScraper();
+      userProfileData = await scraper.getProfile(cleanUsername);
+
+      if (!userProfileData) {
+        logger.warn(
+          { username: cleanUsername },
+          `No profile found by agent-twitter-client for @${cleanUsername}.`
+        );
+        return {
+          lawfulChaotic: 0,
+          goodEvil: 0,
+          explanation: `Could not retrieve profile for @${cleanUsername}. The user may be private, non-existent, suspended, or X/Twitter access failed.`,
+          cached: false,
+          isError: true,
+        };
+      }
+
+      fetchedAvatarUrl =
+        userProfileData.avatar || userProfileData.profile_image_url_https;
+      logger.debug(
+        { username: cleanUsername, userProfileData },
+        "Fetched user profile data."
       );
-      // Consider if this should be a specific error message
+
+      // Collect tweets from async generator
+      const tweetGenerator = await scraper.getTweets(cleanUsername, 20);
+
+      for await (const tweet of tweetGenerator) {
+        if (tweet.text) {
+          userTweetsData.push(tweet as ScraperTweet);
+        }
+        if (userTweetsData.length >= 20) break;
+      }
+
+      logger.info(
+        { username: cleanUsername, tweetCount: userTweetsData.length },
+        `Fetched ${userTweetsData.length} tweets for @${cleanUsername}`
+      );
+    } catch (fetchError) {
+      logger.error(
+        { err: fetchError, username: cleanUsername },
+        `Error fetching data from Twitter for @${cleanUsername}`
+      );
+      let errorExplanation = `An error occurred while fetching data for @${cleanUsername} from X/Twitter.`;
+
+      if (fetchError instanceof Error) {
+        const message = fetchError.message?.toLowerCase() || "";
+
+        if (message.includes("login")) {
+          errorExplanation =
+            "Failed to log in to X/Twitter to fetch data. Please check server credentials/configuration.";
+        } else if (
+          message.includes("not found") ||
+          message.includes("no user") ||
+          (hasStatus(fetchError) && fetchError.status === 404)
+        ) {
+          errorExplanation = `User @${cleanUsername} not found on X/Twitter or their profile is inaccessible.`;
+        }
+      }
+
       return {
         lawfulChaotic: 0,
         goodEvil: 0,
-        explanation: `Could not retrieve profile or tweets for @${cleanUsername}. The user might be private, non-existent, or there was an issue fetching their data.`,
+        explanation: errorExplanation,
         cached: false,
         isError: true,
+        avatarUrl: fetchedAvatarUrl,
       };
     }
 
-    // Prepare data for AI
-    const profile_str_for_ai = JSON.stringify(
+    const transformedProfileForAI: InternalProfileForAI = {
+      name: userProfileData.name,
+      bio: userProfileData.description,
+      location: userProfileData.location,
+      followers_count: userProfileData.followersCount,
+      statuses_count: userProfileData.tweetsCount,
+      tweets: userTweetsData
+        .filter((tweet) => tweet.text?.trim())
+        .map((tweet) => {
+          let createdAtDate: Date;
+          if (tweet.timeParsed instanceof Date) {
+            createdAtDate = tweet.timeParsed;
+          } else if (tweet.created_at) {
+            createdAtDate = new Date(tweet.created_at);
+          } else if (typeof tweet.timestamp === "number") {
+            createdAtDate = new Date(tweet.timestamp * 1000);
+          } else {
+            createdAtDate = new Date();
+          }
+
+          return {
+            text: tweet.text,
+            created_at: createdAtDate.toISOString(),
+            favorite_count: tweet.favorite_count ?? 0,
+            retweet_count: tweet.retweet_count ?? 0,
+            reply_count: tweet.reply_count ?? 0,
+            quote_count: tweet.quote_count ?? 0,
+            is_quote_status:
+              tweet.is_quote_status ??
+              (!!tweet.quoted_status_id_str || !!tweet.quotedStatus),
+          };
+        }),
+    };
+
+    const profileStrForAI = JSON.stringify(
       {
-        name: profile.name,
-        bio: profile.bio,
-        location: profile.location,
-        followers_count: profile.followers_count,
-        statuses_count: profile.statuses_count,
-        // No tweets in profile string to keep it concise
+        name: transformedProfileForAI.name,
+        bio: transformedProfileForAI.bio,
+        location: transformedProfileForAI.location,
+        followers_count: transformedProfileForAI.followers_count,
+        statuses_count: transformedProfileForAI.statuses_count,
       },
       null,
       2
     );
 
-    const tweetTexts = profile.tweets
-      .slice(0, 50)
+    const tweetTexts = transformedProfileForAI.tweets
       .map(
-        (
-          tweet // Limit tweets to avoid overly long prompts
-        ) =>
+        (tweet) =>
           `<post${tweet.is_quote_status ? ' is_quote="true"' : ""}>
 Text: ${tweet.text}
-Stats: ${tweet.favorite_count || 0} likes, ${tweet.reply_count || 0} replies, ${
-            tweet.retweet_count || 0
-          } retweets, ${tweet.quote_count || 0} quotes
+Stats: ${tweet.favorite_count} likes, ${tweet.reply_count} replies, ${tweet.retweet_count} retweets, ${tweet.quote_count} quotes
 </post>`
       )
       .join("\n\n");
 
-    if (profile.tweets.length === 0) {
+    if (
+      transformedProfileForAI.tweets.length === 0 &&
+      !transformedProfileForAI.bio?.trim() &&
+      !transformedProfileForAI.name?.trim()
+    ) {
       logger.info(
         { username: cleanUsername },
-        "User has no tweets to analyze."
+        "User has no public tweets and minimal profile info for AI analysis."
       );
       return {
         lawfulChaotic: 0,
         goodEvil: 0,
-        explanation: `User @${cleanUsername} has no public tweets that could be analyzed.`,
+        explanation: `User @${cleanUsername} has no public tweets and minimal profile information that could be meaningfully analyzed by AI.`,
         cached: false,
-        isError: true, // Or treat as neutral if desired
+        isError: true,
+        avatarUrl: fetchedAvatarUrl,
       };
     }
 
-    const messages: CoreMessage[] = [
-      {
-        role: "system",
-        content: dedent`
-        You are an expert D&D alignment analyst. Analyze the provided Twitter user profile and their recent tweets to determine their alignment on a D&D-style chart.
+    const systemPrompt = dedent`
+      You are an expert D&D alignment analyst. Analyze the provided Twitter user profile and their recent tweets to determine their alignment on a D&D-style chart.
+      ...
+    `.trim();
 
-        Lawful-Chaotic Axis:
-        - Lawful (-100 to -34): Values order, rules, tradition, hierarchy. Predictable, reliable.
-        - Neutral (-33 to 33): Balances rules and freedom. Pragmatic.
-        - Chaotic (34 to 100): Values freedom, individuality, rebels against convention. Unpredictable.
-
-        Good-Evil Axis:
-        - Good (-100 to -34): Altruistic, compassionate, helps others, values life and dignity.
-        - Neutral (-33 to 33): Concerned with self but not overtly harmful or helpful.
-        - Evil (34 to 100): Selfish, harms others, manipulative, power-hungry, disregards others' well-being.
-
-        Based ONLY on the provided profile and tweets:
-        1.  Provide a numerical score for Lawful/Chaotic (-100 to 100).
-        2.  Provide a numerical score for Good/Evil (-100 to 100).
-        3.  Provide a brief (1-2 sentences) explanation for your scores, citing tweet content or profile bio if relevant.
-
-        Be nuanced but decisive. If traits are subtle, lean towards neutral on that axis unless clear evidence pushes to an extreme.
-        This is for fun, so be a bit playful in the explanation if appropriate, but keep the scores grounded in the text.
-        Do not invent information not present in the tweets or profile.
-        Output ONLY the JSON object as specified by the schema.
-      `.trim(),
-      },
-      {
-        role: "user",
-        content: dedent`Username: @${cleanUsername}
+    const userPromptContent = dedent`Username: @${cleanUsername}
 
 <user_profile>
-${profile_str_for_ai}
+${profileStrForAI}
 </user_profile>
 
-<user_tweets limit="top_50_recent">
-${tweetTexts}
+<user_tweets limit="top_20_recent">
+${tweetTexts || "No public tweets found or provided for analysis."}
 </user_tweets>
 
-Please provide your analysis.`.trim(),
-      },
+Please provide your analysis.`.trim();
+
+    const messages: CoreMessage[] = [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPromptContent },
     ];
 
     const {
-      object: analysisResult,
+      object: analysisResultData,
       usage,
       finishReason,
     } = await generateObject({
-      model: google("gemini-1.5-flash-latest"), // Or "gemini-1.5-pro-latest" for higher quality
-      temperature: 0.5, // Lower temp for more deterministic/factual analysis
+      model: google("gemini-1.5-flash-latest"),
+      temperature: 0.5,
       schema: AlignmentSchema,
       messages,
-      // maxTokens: 250, // Optional: If you want to control output length more strictly
     });
 
     logger.info(
@@ -182,31 +302,28 @@ Please provide your analysis.`.trim(),
       "Gemini analysis complete"
     );
 
-    await setCachedData(cacheKey, analysisResult, 604_800); // Cache for 7 days
+    const finalResult: AlignmentAnalysisResult = {
+      ...analysisResultData,
+      cached: false,
+      isError: false,
+      avatarUrl: fetchedAvatarUrl,
+    };
+    await setCachedData(cacheKey, finalResult, 604_800);
 
-    // waitUntil(track("analysis_complete", { // If using Vercel Analytics
-    //   username: cleanUsername,
-    //   lawful_chaotic: analysisResult.lawfulChaotic,
-    //   good_evil: analysisResult.goodEvil,
-    // }));
-
-    return { ...analysisResult, cached: false, isError: false };
+    return finalResult;
   } catch (error) {
     logger.error(
       { err: error, username: cleanUsername },
-      `Error analyzing tweets for @${cleanUsername}`
+      `Critical error in analyseUser for @${cleanUsername}`
     );
-    let errorMessage = `Error analyzing tweets for @${cleanUsername}. Please check the username and try again later.`;
-
+    let errorMessage = `Error analyzing tweets for @${cleanUsername}. Please check the username and try again.`;
     if (error instanceof Error) {
       if (error.message.includes("API key not valid")) {
-        errorMessage =
-          "AI service API key is invalid or missing. Please contact support.";
+        errorMessage = "AI service API key is invalid or missing.";
       } else if (error.message.toLowerCase().includes("quota")) {
-        errorMessage = "AI service quota exceeded. Please try again later.";
+        errorMessage = "AI service quota exceeded.";
       }
     }
-
     return {
       lawfulChaotic: 0,
       goodEvil: 0,
