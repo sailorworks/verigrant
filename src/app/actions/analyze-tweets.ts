@@ -22,7 +22,7 @@ function hasStatus(error: unknown): error is { status: number } {
 // Define interfaces for Twitter scraper data
 interface ScraperProfile {
   name?: string;
-  description?: string; // Common field for bio
+  biography?: string; // Common field for bio
   location?: string;
   followersCount?: number;
   tweetsCount?: number;
@@ -191,7 +191,7 @@ export async function analyseUser(
 
     const transformedProfileForAI: InternalProfileForAI = {
       name: userProfileData.name,
-      bio: userProfileData.description,
+      bio: userProfileData.biography,
       location: userProfileData.location,
       followers_count: userProfileData.followersCount,
       statuses_count: userProfileData.tweetsCount,

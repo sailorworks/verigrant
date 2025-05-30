@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { X, Sparkles, Lock, Dices, GithubIcon, Trash } from "lucide-react";
-import { analyseUser, type AlignmentAnalysis } from "./actions/analyze-tweets"; // Assuming AlignmentAnalysisResult is not needed here directly by Placement
+import { analyseUser, type AlignmentAnalysis } from "./actions/analyze-tweets";
 import {
   Tooltip,
   TooltipContent,
@@ -26,7 +26,7 @@ import {
   type PanelAnalysisItem,
 } from "./components/analysis-panel";
 import { toast, Toaster } from "sonner";
-import { cn, getRandomPosition } from "@/lib/utils"; // Correctly imports getRandomPosition
+import { cn, getRandomPosition } from "@/lib/utils";
 import { getBestAvatarUrl } from "@/lib/load-avatar";
 import {
   initIndexedDB,
@@ -35,7 +35,7 @@ import {
   removeCachedPlacement,
   clearLocalCache,
 } from "@/lib/indexed-db";
-import { useDebounceFunction } from "@/hooks/use-debounce"; // Correctly import useDebounceFunction
+import { useDebounceFunction } from "@/hooks/use-debounce";
 import { logger } from "@/lib/logger";
 import {
   AlertDialogHeader,
@@ -48,6 +48,7 @@ import {
   AlertDialogCancel,
   AlertDialogAction,
 } from "@/components/ui/alert-dialog";
+import { ConnectWalletButton } from "./components/wallet-connect-button"; // Import the button
 
 interface Position {
   x: number;
@@ -139,7 +140,7 @@ export default function AlignmentChartPage() {
         const viewportHeight = window.innerHeight;
         const viewportWidth = window.innerWidth;
 
-        const reservedVerticalSpace = isCurrentlyMobile ? 220 : 200;
+        const reservedVerticalSpace = isCurrentlyMobile ? 250 : 220; // Adjusted for wallet button
         const topPadding = isCurrentlyMobile ? 20 : 0;
         const availableHeight =
           viewportHeight - reservedVerticalSpace - topPadding;
@@ -182,21 +183,16 @@ export default function AlignmentChartPage() {
         targetElement.tagName !== "INPUT" &&
         targetElement.tagName !== "TEXTAREA"
       ) {
-        // This line can be very aggressive. Test thoroughly if re-enabled.
         // e.preventDefault();
       }
     };
 
-    // Manage body overflow primarily for mobile to prevent pull-to-refresh or overscroll issues
-    // Desktop usually handles this better.
     if (isMobile) {
       document.body.style.overflow = "hidden";
     } else {
       document.body.style.overflow = "";
     }
 
-    // Add the touchmove listener if activeDragId is present or if generally needed for mobile
-    // For now, let's only apply it if activeDragId is set, to be less intrusive
     if (activeDragId) {
       document.addEventListener("touchmove", preventDefaultTouchScroll, {
         passive: false,
@@ -208,7 +204,6 @@ export default function AlignmentChartPage() {
         document.body.style.overflow = "";
       }
       if (activeDragId) {
-        // Only remove if it was added
         document.removeEventListener("touchmove", preventDefaultTouchScroll);
       }
     };
@@ -370,10 +365,6 @@ export default function AlignmentChartPage() {
     const image = images.find((img) => img.id === id);
     if (!image || image.loading || image.isAiPlaced) return;
 
-    if ("touches" in e) {
-      // e.preventDefault(); // This might be too aggressive here, handled by the useEffect for activeDragId
-    }
-
     setActiveDragId(id);
     setImages((prev) =>
       prev.map((img) => (img.id === id ? { ...img, isDragging: true } : img))
@@ -392,15 +383,13 @@ export default function AlignmentChartPage() {
       y = Math.max(0, Math.min(y, 100));
 
       setImages((prevImages) =>
-        prevImages.map(
-          (
-            img // Use functional update if many rapid updates
-          ) => (img.id === activeDragId ? { ...img, position: { x, y } } : img)
+        prevImages.map((img) =>
+          img.id === activeDragId ? { ...img, position: { x, y } } : img
         )
       );
     },
     [activeDragId]
-  ); // Removed images dependency as it's updated via functional update
+  );
 
   const handleGlobalMouseMove = useCallback(
     (e: MouseEvent) => {
@@ -418,7 +407,7 @@ export default function AlignmentChartPage() {
     [activeDragId, handleDragMove]
   );
 
-  const handleDragEnd = () => {
+  const handleDragEnd = useCallback(() => {
     if (!activeDragId) return;
     setImages((prev) =>
       prev.map((img) =>
@@ -426,7 +415,7 @@ export default function AlignmentChartPage() {
       )
     );
     setActiveDragId(null);
-  };
+  }, [activeDragId]);
 
   useEffect(() => {
     if (activeDragId) {
@@ -434,7 +423,7 @@ export default function AlignmentChartPage() {
       window.addEventListener("mouseup", handleDragEnd);
       window.addEventListener("touchmove", handleGlobalTouchMove, {
         passive: false,
-      }); // passive: false needed for preventDefault inside listener
+      });
       window.addEventListener("touchend", handleDragEnd);
       window.addEventListener("touchcancel", handleDragEnd);
     }
@@ -450,7 +439,7 @@ export default function AlignmentChartPage() {
     handleGlobalMouseMove,
     handleGlobalTouchMove,
     handleDragEnd,
-  ]); // Added handleDragEnd
+  ]);
 
   const handleRemoveImage = async (idToRemove: string) => {
     setImages((prev) => prev.filter((img) => img.id !== idToRemove));
@@ -492,11 +481,26 @@ export default function AlignmentChartPage() {
   return (
     <>
       <Toaster position="top-center" richColors />
+
+      {/* Wallet Connect Button - Fixed Top Right */}
       <div
-        className="flex flex-col min-h-screen w-full overflow-x-hidden items-center pt-6 pb-28 md:pb-8 px-4 md:justify-center" // overflow-x-hidden
+        style={{
+          position: "fixed",
+          top: "40px",
+          right: "40px",
+          zIndex: 500,
+          padding: "8px",
+          opacity: 1,
+        }}
+      >
+        <ConnectWalletButton />
+      </div>
+
+      <div
+        className="flex flex-col min-h-screen w-full overflow-x-hidden items-center pt-6 pb-28 md:pb-8 px-4 md:justify-center"
         ref={containerRef}
       >
-        <div className="flex flex-col items-center gap-5 md:gap-6 w-full max-w-3xl">
+        <div className="flex flex-col items-center gap-5 md:gap-6 w-full max-w-3xl mt-10 md:mt-12">
           <form
             className="relative w-full max-w-md"
             onSubmit={(e) => {
@@ -554,8 +558,6 @@ export default function AlignmentChartPage() {
           </form>
 
           <div className="relative mt-4">
-            {" "}
-            {/* Added margin top for labels */}
             {["Good", "Evil", "Lawful", "Chaotic"].map((label) => (
               <button
                 key={label}
@@ -576,9 +578,9 @@ export default function AlignmentChartPage() {
                 className={cn(
                   "absolute bg-white dark:bg-neutral-800 px-2.5 py-1 font-semibold md:text-sm text-xs border border-neutral-400 dark:border-neutral-600 rounded-full z-10 shadow",
                   label === "Good" &&
-                    "top-0 left-1/2 -translate-x-1/2 -translate-y-[calc(100%+12px)]", // Adjusted y-translation
+                    "top-0 left-1/2 -translate-x-1/2 -translate-y-[calc(100%+12px)]",
                   label === "Evil" &&
-                    "bottom-0 left-1/2 -translate-x-1/2 translate-y-[calc(100%+12px)]", // Adjusted y-translation
+                    "bottom-0 left-1/2 -translate-x-1/2 translate-y-[calc(100%+12px)]",
                   label === "Lawful" &&
                     "top-1/2 left-0 -translate-x-[calc(100%+12px)] -translate-y-1/2",
                   label === "Chaotic" &&
@@ -614,7 +616,7 @@ export default function AlignmentChartPage() {
                   key={img.id}
                   id={img.id}
                   className={cn(
-                    "absolute rounded-md overflow-hidden group shadow-md", // rounded-md for images
+                    "absolute rounded-md overflow-hidden group shadow-md",
                     img.isAiPlaced
                       ? "cursor-default"
                       : img.loading
@@ -626,7 +628,7 @@ export default function AlignmentChartPage() {
                       !img.loading &&
                       "hover:ring-2 hover:ring-neutral-400 dark:hover:ring-neutral-500",
                     img.isAiPlaced &&
-                      "ring-1 ring-purple-500 dark:ring-purple-400" // Thinner ring for AI placed
+                      "ring-1 ring-purple-500 dark:ring-purple-400"
                   )}
                   style={{
                     left: `${img.position.x}%`,
@@ -635,11 +637,11 @@ export default function AlignmentChartPage() {
                     height: `${imageSize}px`,
                     transform: `translate(-50%, -50%) scale(${
                       img.isDragging ? 1.05 : 1
-                    })`, // Slightly smaller scale
+                    })`,
                     transition: img.isDragging
                       ? "none"
                       : "transform 0.1s ease, box-shadow 0.1s ease",
-                    opacity: img.loading && !img.isAiPlaced ? 0.6 : 1, // More pronounced loading opacity
+                    opacity: img.loading && !img.isAiPlaced ? 0.6 : 1,
                   }}
                   initial={{ opacity: 0, scale: 0.5 }}
                   animate={{ opacity: 1, scale: 1 }}
@@ -655,13 +657,13 @@ export default function AlignmentChartPage() {
                   <NextImage
                     src={img.src || "/grid.svg"}
                     alt={`X avatar for ${img.username || "user"}`}
-                    width={128} // Internal resolution for better quality on resize
+                    width={128}
                     height={128}
                     className={cn(
                       "object-cover w-full h-full bg-white dark:bg-neutral-700",
                       img.loading && !img.isAiPlaced
                         ? "animate-pulse opacity-50"
-                        : "" // only pulse if not AI loading
+                        : ""
                     )}
                     unoptimized={img.src.includes("unavatar.io")}
                     priority={false}
@@ -675,7 +677,7 @@ export default function AlignmentChartPage() {
 
                   {!img.loading && (
                     <Button
-                      variant="ghost" // Ghost for less visual clutter
+                      variant="ghost"
                       size="icon"
                       className="absolute top-[-6px] right-[-6px] h-5 w-5 rounded-full p-0 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity scale-90 hover:scale-100 bg-red-500 hover:bg-red-600 text-white"
                       onClick={(e) => {
@@ -692,7 +694,7 @@ export default function AlignmentChartPage() {
                     className={cn(
                       "absolute bottom-0 left-0 right-0 bg-black/75 text-white text-[0.6rem] px-1.5 py-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity overflow-hidden flex items-center gap-1 justify-center",
                       (img.isAiPlaced || (img.loading && !img.isAiPlaced)) &&
-                        "opacity-100" // Show if AI placed or manually loading
+                        "opacity-100"
                     )}
                   >
                     {img.isAiPlaced && !img.loading && (
@@ -708,8 +710,6 @@ export default function AlignmentChartPage() {
           </div>
 
           <span className="text-center text-xs text-neutral-500 dark:text-neutral-400 max-w-md mt-2">
-            {" "}
-            {/* Added margin top */}
             Inspired by{" "}
             <a
               href="https://x.com/rauchg/status/1899895262023467035"
@@ -719,23 +719,9 @@ export default function AlignmentChartPage() {
             >
               rauchg
             </a>
-            . AI version by{" "}
-            <a
-              href="https://x.com/f1shy_dev"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline hover:text-purple-500"
-            >
-              f1shy-dev
-            </a>
             .
-            <a
-              href="https://github.com/f1shy-dev/x-chart"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 underline hover:text-purple-500 ml-2"
-            >
-              <GithubIcon className="w-3 h-3" /> Source
+            <a>
+              <GithubIcon className="w-3 h-3" />
             </a>
           </span>
         </div>
