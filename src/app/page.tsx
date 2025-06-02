@@ -48,7 +48,10 @@ import {
   AlertDialogCancel,
   AlertDialogAction,
 } from "@/components/ui/alert-dialog";
-import { ConnectWalletButton } from "./components/wallet-connect-button"; // Import the button
+import { ConnectWalletButton } from "./components/wallet-connect-button";
+
+// Import useAccount from wagmi
+import { useAccount } from "wagmi";
 
 interface Position {
   x: number;
@@ -82,6 +85,9 @@ export default function AlignmentChartPage() {
   const [newlyAnalyzedId, setNewlyAnalyzedId] = useState<string | null>(null);
 
   const [isAnalyzingServer, startServerAnalysisTransition] = useTransition();
+
+  // Get wallet connection state
+  const { isConnected } = useAccount();
 
   const debouncedSaveToLocalDB = useDebounceFunction(
     async (currentImages: Placement[]) => {
@@ -140,7 +146,7 @@ export default function AlignmentChartPage() {
         const viewportHeight = window.innerHeight;
         const viewportWidth = window.innerWidth;
 
-        const reservedVerticalSpace = isCurrentlyMobile ? 250 : 220; // Adjusted for wallet button
+        const reservedVerticalSpace = isCurrentlyMobile ? 250 : 220;
         const topPadding = isCurrentlyMobile ? 20 : 0;
         const availableHeight =
           viewportHeight - reservedVerticalSpace - topPadding;
@@ -216,6 +222,14 @@ export default function AlignmentChartPage() {
   };
 
   const handleAddRandom = async () => {
+    // Check if wallet is connected
+    if (!isConnected) {
+      toast.error(
+        "Please connect your wallet first to add profiles to the chart."
+      );
+      return;
+    }
+
     const username = usernameInput.trim();
     if (!username) {
       toast.error("Please enter a username.");
@@ -271,6 +285,14 @@ export default function AlignmentChartPage() {
   };
 
   const handleAutoAnalyzeAndPlace = async () => {
+    // Check if wallet is connected
+    if (!isConnected) {
+      toast.error(
+        "Please connect your wallet first to analyze profiles with AI."
+      );
+      return;
+    }
+
     const username = usernameInput.trim();
     if (!username) {
       toast.error("Please enter a username.");
@@ -505,7 +527,7 @@ export default function AlignmentChartPage() {
             className="relative w-full max-w-md"
             onSubmit={(e) => {
               e.preventDefault();
-              handleAutoAnalyzeAndPlace();
+              handleAutoAnalyzeAndPlace(); // This will now check for wallet connection first
             }}
           >
             <Input
@@ -524,7 +546,7 @@ export default function AlignmentChartPage() {
                   <TooltipTrigger asChild>
                     <Button
                       type="button"
-                      onClick={handleAddRandom}
+                      onClick={handleAddRandom} // This will now check for wallet connection first
                       size="icon"
                       className="h-9 w-9 rounded-full bg-neutral-600 hover:bg-neutral-700 dark:bg-neutral-700 dark:hover:bg-neutral-600 text-white"
                       disabled={!usernameInput.trim() || isInputDisabled}
@@ -540,7 +562,7 @@ export default function AlignmentChartPage() {
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
-                      type="submit"
+                      type="submit" // Form submission calls handleAutoAnalyzeAndPlace
                       size="icon"
                       className="h-9 w-9 rounded-full bg-gradient-to-br from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white"
                       disabled={!usernameInput.trim() || isInputDisabled}
