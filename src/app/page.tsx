@@ -1,4 +1,3 @@
-// src/app/page.tsx
 "use client";
 
 import React, {
@@ -53,6 +52,10 @@ import { ConnectWalletButton } from "./components/wallet-connect-button";
 // Import useAccount from wagmi
 import { useAccount } from "wagmi";
 
+// New imports for commit functionality
+import { useSignMessage } from "wagmi";
+import { ShieldCheck } from "lucide-react"; // Or any icon you like
+
 interface Position {
   x: number;
   y: number;
@@ -87,7 +90,10 @@ export default function AlignmentChartPage() {
   const [isAnalyzingServer, startServerAnalysisTransition] = useTransition();
 
   // Get wallet connection state
-  const { isConnected } = useAccount();
+  const { address, isConnected } = useAccount(); // You already have this
+  const { signMessageAsync } = useSignMessage();
+
+  const [isCommitting, setIsCommitting] = useState(false);
 
   const debouncedSaveToLocalDB = useDebounceFunction(
     async (currentImages: Placement[]) => {
@@ -500,6 +506,77 @@ export default function AlignmentChartPage() {
 
   const isInputDisabled = isProcessing || isAnalyzingServer || isPageLoading;
 
+  const handleCommitSnapshot = async () => {
+    if (!isConnected || !address || images.length === 0) {
+      toast.error(
+        "Please connect your wallet and add at least one placement to commit."
+      );
+      return;
+    }
+    setIsCommitting(true);
+    const commitToast = toast.loading("Preparing snapshot for commit...");
+
+    try {
+      // Step 1: Prepare - Get the message to sign from the backend
+      const prepareResponse = await fetch("/api/persona/commit-snapshot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ placements: images, address }),
+      });
+      const { messageToSign, nonce } = await prepareResponse.json();
+
+      if (!prepareResponse.ok || !messageToSign) {
+        throw new Error("Failed to prepare data from server.");
+      }
+
+      toast.loading("Please sign the message in your wallet...", {
+        id: commitToast,
+      });
+
+      // Step 2: Sign - Ask the user to sign the message
+      const signature = await signMessageAsync({ message: messageToSign });
+
+      toast.loading("Verifying and submitting to the blockchain...", {
+        id: commitToast,
+      });
+
+      // Step 3: Verify & Execute - Send signature back to the backend
+      const verifyResponse = await fetch("/api/persona/commit-snapshot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ placements: images, address, signature, nonce }),
+      });
+      const result = await verifyResponse.json();
+
+      if (!verifyResponse.ok) {
+        throw new Error(result.error || "Verification failed on the server.");
+      }
+
+      toast.success(
+        `Snapshot committed! Tx: ${result.transactionHash.slice(0, 10)}...`,
+        {
+          id: commitToast,
+          duration: 8000,
+        }
+      );
+    } catch (error: unknown) {
+      logger.error("Commit snapshot failed:", error);
+      // Handle user declining the signature
+      if (
+        error instanceof Error &&
+        error.message.includes("User rejected the request")
+      ) {
+        toast.error("Signature request was cancelled.", { id: commitToast });
+      } else {
+        const errorMessage =
+          error instanceof Error ? error.message : "Unknown error";
+        toast.error(`Commit failed: ${errorMessage}`, { id: commitToast });
+      }
+    } finally {
+      setIsCommitting(false);
+    }
+  };
+
   return (
     <>
       <Toaster position="top-center" richColors />
@@ -749,6 +826,29 @@ export default function AlignmentChartPage() {
         </div>
 
         <AnalysisPanel analyses={panelAnalyses} newAnalysisId={newlyAnalyzedId}>
+          {/* The AlertDialog for Clear All */}
+          {/* ... */}
+
+          {/* NEW COMMIT BUTTON */}
+          <Button
+            onClick={handleCommitSnapshot}
+            size="lg"
+            className="h-14 rounded-full shadow-lg bg-green-600 hover:bg-green-700 text-white"
+            disabled={
+              images.length === 0 ||
+              isCommitting ||
+              !isConnected ||
+              isInputDisabled
+            }
+            aria-label="Commit snapshot to blockchain"
+          >
+            <ShieldCheck className="!size-5 mr-0 sm:mr-2" />
+            <span className="hidden sm:inline">
+              {isCommitting ? "Committing..." : "Commit Snapshot"}
+            </span>
+          </Button>
+
+          {/* Existing Clear All AlertDialogTrigger */}
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button
