@@ -1,25 +1,33 @@
-// src/app/page.tsx
 "use client";
 
-import React, { useState, useRef, useMemo } from "react";
-import { useAccount, useSignMessage } from "wagmi";
+import React, {
+  useState,
+  useRef,
+  useMemo,
+  useEffect,
+  useCallback,
+} from "react";
+import {
+  useAccount,
+  useSignMessage,
+  useWriteContract,
+  useWaitForTransactionReceipt,
+} from "wagmi";
 import { toast, Toaster } from "sonner";
-import { GithubIcon, Trash, ShieldCheck } from "lucide-react";
+import { GithubIcon, Trash, ShieldCheck, Award } from "lucide-react";
 import { logger } from "@/lib/logger";
 import type { PanelAnalysisItem } from "./types";
 
-// Our new custom hooks
+// Custom Hooks and Components
 import { usePlacements } from "./hooks/usePlacements";
 import { useChartSizing } from "./hooks/useChartSizing";
 import { useDragAndDrop } from "./hooks/useDragAndDrop";
-
-// Our new UI components
 import { ActionToolbar } from "./components/ActionToolbar";
 import { AlignmentChart } from "./components/AlignmentChart";
 import { ConnectWalletButton } from "./components/wallet-connect-button";
 import { AnalysisPanel } from "./components/analysis-panel";
 
-// ShadCN UI components
+// ShadCN UI
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -33,11 +41,25 @@ import {
   AlertDialogAction,
 } from "@/components/ui/alert-dialog";
 
+// *** NEW: Import the full ABI for the NFT contract ***
+import { personaNftFullAbi } from "@/lib/nft-abi";
+
+// Type for the JSON data we get from our new API
+type SnapshotApiResponse = {
+  exists: boolean;
+  // Add other fields if you need them in the frontend
+};
+
+// *** DELETED: The old, simple ABI is no longer needed ***
+// const personaNftAbi = ["function mint() external"];
+
+const nftContractAddress = process.env
+  .NEXT_PUBLIC_NFT_CONTRACT_ADDRESS as `0x${string}`;
+
 export default function AlignmentChartPage() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<HTMLDivElement | null>(null);
 
-  // State and Logic from Custom Hooks
   const { address, isConnected } = useAccount();
   const {
     images,
@@ -57,9 +79,102 @@ export default function AlignmentChartPage() {
     isMobile,
   });
 
-  // Commit to Blockchain Logic
   const [isCommitting, setIsCommitting] = useState(false);
+  const [isWaitingForSnapshot, setIsWaitingForSnapshot] = useState(false);
   const { signMessageAsync } = useSignMessage();
+
+  const {
+    data: writeContractHash,
+    writeContract,
+    isPending: isMinting,
+  } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess: isConfirmed } =
+    useWaitForTransactionReceipt({ hash: writeContractHash });
+
+  // --- State to hold snapshot data fetched from our API ---
+  const [snapshotData, setSnapshotData] = useState<SnapshotApiResponse | null>(
+    null
+  );
+
+  const hasSnapshot = snapshotData?.exists ?? false;
+  const canMint = hasSnapshot;
+
+  // --- Function to fetch data from our API proxy ---
+  const fetchSnapshot = useCallback(async () => {
+    if (!isConnected || !address) return;
+
+    try {
+      const response = await fetch(
+        `/api/persona/get-snapshot?address=${address}`
+      );
+      if (!response.ok) throw new Error("Failed to fetch snapshot from API");
+      const data: SnapshotApiResponse = await response.json();
+      setSnapshotData(data);
+    } catch (error) {
+      console.error("Error fetching snapshot:", error);
+      // Don't toast on every poll error, just log it
+    }
+  }, [address, isConnected]);
+
+  // Initial fetch
+  useEffect(() => {
+    fetchSnapshot();
+  }, [fetchSnapshot]);
+
+  // Polling logic using our new fetch function
+  useEffect(() => {
+    if (hasSnapshot) {
+      if (isWaitingForSnapshot) {
+        toast.success("On-chain snapshot confirmed!", {
+          description: "You are now eligible to mint your Persona NFT.",
+        });
+        setIsWaitingForSnapshot(false);
+      }
+      return;
+    }
+    if (isWaitingForSnapshot) {
+      const interval = setInterval(() => {
+        console.log("Polling for on-chain snapshot via API...");
+        fetchSnapshot();
+      }, 4000);
+      return () => clearInterval(interval);
+    }
+  }, [isWaitingForSnapshot, hasSnapshot, fetchSnapshot]);
+
+  useEffect(() => {
+    if (isConfirmed) {
+      toast.success("Persona NFT minted successfully!", {
+        description: "Your on-chain persona is now a unique collectible.",
+        action: {
+          label: "View on OpenSea",
+          onClick: () =>
+            window.open(
+              `https://testnets.opensea.io/assets/sepolia/${nftContractAddress}`,
+              "_blank"
+            ),
+        },
+      });
+    }
+  }, [isConfirmed]);
+
+  const handleMintNft = () => {
+    if (!canMint) {
+      toast.error("Not eligible to mint. A snapshot must be committed first.");
+      return;
+    }
+    // Good for debugging to ensure the function is called and the address is correct
+    console.log(
+      "Attempting to mint NFT with full ABI at address:",
+      nftContractAddress
+    );
+
+    writeContract({
+      address: nftContractAddress,
+      // *** UPDATED: Use the new, complete ABI ***
+      abi: personaNftFullAbi,
+      functionName: "mint",
+    });
+  };
 
   const handleCommitSnapshot = async () => {
     if (!isConnected || !address || images.length === 0) {
@@ -68,7 +183,6 @@ export default function AlignmentChartPage() {
     }
     setIsCommitting(true);
     const commitToast = toast.loading("Preparing snapshot for commit...");
-
     try {
       const prepareResponse = await fetch("/api/persona/commit-snapshot", {
         method: "POST",
@@ -78,13 +192,13 @@ export default function AlignmentChartPage() {
       const { messageToSign, nonce } = await prepareResponse.json();
       if (!prepareResponse.ok || !messageToSign)
         throw new Error("Failed to prepare snapshot.");
-
       toast.loading("Please sign the message in your wallet...", {
         id: commitToast,
       });
       const signature = await signMessageAsync({ message: messageToSign });
-
-      toast.loading("Verifying and submitting...", { id: commitToast });
+      toast.loading("Verifying and submitting to the blockchain...", {
+        id: commitToast,
+      });
       const verifyResponse = await fetch("/api/persona/commit-snapshot", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -93,20 +207,21 @@ export default function AlignmentChartPage() {
       const result = await verifyResponse.json();
       if (!verifyResponse.ok)
         throw new Error(result.error || "Verification failed.");
-
       toast.success(
-        `Snapshot committed! Tx: ${result.transactionHash.slice(0, 10)}...`,
-        { id: commitToast, duration: 8000 }
+        `Transaction sent! Tx: ${result.transactionHash.slice(0, 10)}...`,
+        {
+          id: commitToast,
+          description: "Now waiting for on-chain confirmation.",
+        }
       );
+      setIsWaitingForSnapshot(true);
     } catch (error: unknown) {
-      // Using `unknown` is safer than `any`
       logger.error("Commit snapshot failed:", error);
       let message = "An unknown error occurred.";
-      if (error instanceof Error) {
+      if (error instanceof Error)
         message = error.message.includes("User rejected")
           ? "Signature request was cancelled."
           : error.message;
-      }
       toast.error(`Commit failed: ${message}`, { id: commitToast });
     } finally {
       setIsCommitting(false);
@@ -158,7 +273,6 @@ export default function AlignmentChartPage() {
             isProcessing={isProcessing}
             isConnected={isConnected}
           />
-
           <AlignmentChart
             chartRef={chartRef}
             placements={images}
@@ -167,7 +281,6 @@ export default function AlignmentChartPage() {
             onDragStart={handleDragStart}
             onRemove={removePlacement}
           />
-
           <span className="text-center text-xs text-neutral-500 dark:text-neutral-400 max-w-md mt-2">
             Inspired by{" "}
             <a
@@ -191,23 +304,49 @@ export default function AlignmentChartPage() {
         </div>
 
         <AnalysisPanel analyses={panelAnalyses} newAnalysisId={newlyAnalyzedId}>
-          <Button
-            onClick={handleCommitSnapshot}
-            size="lg"
-            className="h-14 rounded-full shadow-lg bg-green-600 hover:bg-green-700 text-white"
-            disabled={
-              images.length === 0 ||
-              isCommitting ||
-              !isConnected ||
-              isActionDisabled
-            }
-            aria-label="Commit snapshot to blockchain"
-          >
-            <ShieldCheck className="!size-5 mr-0 sm:mr-2" />
-            <span className="hidden sm:inline">
-              {isCommitting ? "Committing..." : "Commit Snapshot"}
-            </span>
-          </Button>
+          {!hasSnapshot && (
+            <Button
+              onClick={handleCommitSnapshot}
+              size="lg"
+              className="h-14 rounded-full shadow-lg bg-green-600 hover:bg-green-700 text-white"
+              disabled={
+                images.length === 0 ||
+                isCommitting ||
+                isWaitingForSnapshot ||
+                !isConnected ||
+                isActionDisabled
+              }
+              aria-label="Commit snapshot to blockchain"
+            >
+              <ShieldCheck className="!size-5 mr-0 sm:mr-2" />
+              <span className="hidden sm:inline">
+                {isCommitting
+                  ? "Committing..."
+                  : isWaitingForSnapshot
+                  ? "Verifying..."
+                  : "Commit Snapshot"}
+              </span>
+            </Button>
+          )}
+
+          {canMint && (
+            <Button
+              onClick={handleMintNft}
+              size="lg"
+              className="h-14 rounded-full shadow-lg bg-blue-600 hover:bg-blue-700 text-white"
+              disabled={isMinting || isConfirming || isActionDisabled}
+              aria-label="Mint your Persona NFT"
+            >
+              <Award className="!size-5 mr-0 sm:mr-2" />
+              <span className="hidden sm:inline">
+                {isConfirming
+                  ? "Confirming..."
+                  : isMinting
+                  ? "Minting..."
+                  : "Mint Persona NFT"}
+              </span>
+            </Button>
+          )}
 
           <AlertDialog>
             <AlertDialogTrigger asChild>

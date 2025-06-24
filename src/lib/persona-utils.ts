@@ -1,5 +1,48 @@
+// src/lib/persona-utils.ts
 import { ethers } from "ethers";
-import { type Placement } from "@/app/page"; // Assuming Placement type is exported from page.tsx
+import { type Placement } from "@/app/types";
+
+// --- UPDATED ABI FOR VIEM/WAGMI (The full JSON format) ---
+// We now define both functions our app needs.
+export const personaRegistryViemAbi = [
+  {
+    type: "function",
+    name: "getPersonaSnapshot", // <-- RENAMED function
+    stateMutability: "view",
+    inputs: [{ name: "user", type: "address", internalType: "address" }],
+    // --- FLATTENED outputs to avoid struct decoding issues ---
+    outputs: [
+      { name: "lawfulChaotic", type: "int8", internalType: "int8" },
+      { name: "goodEvil", type: "int8", internalType: "int8" },
+      { name: "reportHash", type: "bytes32", internalType: "bytes32" },
+      { name: "primaryTrait", type: "string", internalType: "string" },
+      { name: "timestamp", type: "uint256", internalType: "uint256" },
+      { name: "exists", type: "bool", internalType: "bool" },
+    ],
+  },
+  {
+    type: "function",
+    name: "setPersonaSnapshot", // <-- ADDED the setter function
+    stateMutability: "nonpayable", // Note: It's nonpayable, not view
+    inputs: [
+      { name: "_userAddress", type: "address", internalType: "address" },
+      { name: "_lawfulChaotic", type: "int8", internalType: "int8" },
+      { name: "_goodEvil", type: "int8", internalType: "int8" },
+      { name: "_reportHash", type: "bytes32", internalType: "bytes32" },
+      { name: "_primaryTrait", type: "string", internalType: "string" },
+    ],
+    outputs: [],
+  },
+] as const;
+
+// --- UPDATED ABI FOR ETHERS.JS (Human-readable format) ---
+// This now includes both functions our backend API routes will use.
+export const personaRegistryEthersAbi = [
+  "function getPersonaSnapshot(address user) view returns (int8 lawfulChaotic, int8 goodEvil, bytes32 reportHash, string memory primaryTrait, uint256 timestamp, bool exists)",
+  "function setPersonaSnapshot(address _userAddress, int8 _lawfulChaotic, int8 _goodEvil, bytes32 _reportHash, string calldata _primaryTrait) external",
+];
+
+// --- No changes below this line ---
 
 export interface PersonaData {
   lawfulChaotic: number; // -100 to 100
@@ -8,11 +51,6 @@ export interface PersonaData {
   primaryTrait: string;
 }
 
-/**
- * Processes the raw placements from the frontend into the data structure needed for the smart contract.
- * @param placements - The array of user placements from the chart.
- * @returns The processed persona data.
- */
 export function processPlacementsForContract(
   placements: Placement[]
 ): PersonaData {
@@ -25,8 +63,6 @@ export function processPlacementsForContract(
     };
   }
 
-  // 1. Calculate average scores
-  // The chart position is 0-100. We need to convert it to -100 to 100 for alignment.
   const totalLawfulChaotic = placements.reduce(
     (sum, p) => sum + (p.position.x - 50) * 2,
     0
@@ -35,12 +71,8 @@ export function processPlacementsForContract(
     (sum, p) => sum + (p.position.y - 50) * 2,
     0
   );
-
   const avgLawfulChaotic = Math.round(totalLawfulChaotic / placements.length);
   const avgGoodEvil = Math.round(totalGoodEvil / placements.length);
-
-  // 2. Generate the report hash
-  // A secure hash of the entire placement data.
   const placementsJson = JSON.stringify(
     placements.map((p) => ({
       username: p.username,
@@ -49,8 +81,6 @@ export function processPlacementsForContract(
     }))
   );
   const reportHash = ethers.keccak256(ethers.toUtf8Bytes(placementsJson));
-
-  // 3. Determine the primary trait string
   const getTrait = (lc: number, ge: number): string => {
     const lcThreshold = 33;
     const geThreshold = 33;
@@ -67,8 +97,8 @@ export function processPlacementsForContract(
   const primaryTrait = getTrait(avgLawfulChaotic, avgGoodEvil);
 
   return {
-    lawfulChaotic: Math.max(-128, Math.min(127, avgLawfulChaotic)), // Clamp to int8 range
-    goodEvil: Math.max(-128, Math.min(127, avgGoodEvil)), // Clamp to int8 range
+    lawfulChaotic: Math.max(-128, Math.min(127, avgLawfulChaotic)),
+    goodEvil: Math.max(-128, Math.min(127, avgGoodEvil)),
     reportHash,
     primaryTrait,
   };
