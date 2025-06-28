@@ -1,14 +1,11 @@
-export const runtime = "nodejs";
-// src/app/api/persona/metadata/[tokenId]/route.ts
+// src/app/api/persona/[tokenId]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { ethers } from "ethers";
 import { personaRegistryEthersAbi } from "@/lib/persona-utils";
-// --- NEW: Import the NFT contract's ABI ---
 import { personaNftAbi } from "@/lib/nft-abi";
 import satori from "satori";
 import { Resvg } from "@resvg/resvg-js";
-// --- UPDATED: Import the certificate component ---
 import { PersonaCertificate } from "@/components/persona-certificate";
 
 type PersonaSnapshot = {
@@ -20,7 +17,14 @@ type PersonaSnapshot = {
   exists: boolean;
 };
 
-// --- REMOVED: The old, simple NFT ABI is replaced by the full one. ---
+// =================================================================
+// === THIS IS THE FIX: Define the context type explicitly ===
+// =================================================================
+type RouteContext = {
+  params: {
+    tokenId: string;
+  };
+};
 
 const {
   NEXT_PUBLIC_RPC_URL,
@@ -35,11 +39,9 @@ const routeParamsSchema = z.object({
 async function getPersonaImage(
   snapshot: PersonaSnapshot,
   username: string,
-  // --- NEW: Add randomNumber as a parameter ---
   randomNumber: string
 ): Promise<Buffer> {
   const svg = await satori(
-    // --- UPDATED: Pass the new prop to the component ---
     PersonaCertificate({
       username: username,
       lawfulChaotic: snapshot.lawfulChaotic.toString(),
@@ -48,7 +50,7 @@ async function getPersonaImage(
       timestamp: new Date(
         Number(snapshot.timestamp) * 1000
       ).toLocaleDateString(),
-      randomNumber: randomNumber, // Pass it here
+      randomNumber: randomNumber,
     }),
     {
       width: 600,
@@ -78,10 +80,11 @@ async function getPersonaImage(
   return pngData.asPng();
 }
 
-export async function GET(
-  req: NextRequest,
-  { params }: { params: { tokenId: string } }
-) {
+// =================================================================
+// === THIS IS THE FIX: Use the new type in the function signature ===
+// =================================================================
+export async function GET(req: NextRequest, context: RouteContext) {
+  const { params } = context; // Destructure inside the function body
   const validation = routeParamsSchema.safeParse(params);
   if (!validation.success) {
     return NextResponse.json({ error: "Invalid Token ID" }, { status: 400 });
@@ -102,10 +105,9 @@ export async function GET(
 
   const provider = new ethers.JsonRpcProvider(NEXT_PUBLIC_RPC_URL);
 
-  // --- UPDATED: Use the new full ABI for the NFT contract ---
   const nftContract = new ethers.Contract(
     NEXT_PUBLIC_NFT_CONTRACT_ADDRESS,
-    personaNftAbi, // Use the full ABI
+    personaNftAbi,
     provider
   );
 
@@ -116,8 +118,6 @@ export async function GET(
   );
 
   try {
-    // --- Step 1: Get owner and random number from NFT Contract ---
-    // These calls can run in parallel for efficiency
     const [ownerAddress, randomNumberResult] = await Promise.all([
       nftContract.ownerOf(tokenId),
       nftContract.tokenSeed(tokenId),
@@ -127,7 +127,6 @@ export async function GET(
       return NextResponse.json({ error: "Token not found" }, { status: 404 });
     }
 
-    // --- Step 2: Get persona data from Registry Contract ---
     const snapshotResult = await registryContract.getPersonaSnapshot(
       ownerAddress
     );
@@ -151,7 +150,6 @@ export async function GET(
       -4
     )}`;
 
-    // --- Step 3: Generate image with all the data ---
     const randomNumberStr = randomNumberResult.toString();
     const imageBuffer = await getPersonaImage(
       snapshot,
@@ -160,16 +158,14 @@ export async function GET(
     );
     const imageUri = `data:image/png;base64,${imageBuffer.toString("base64")}`;
 
-    // --- Step 4: Construct the final metadata JSON ---
     const metadata = {
       name: `Persona NFT #${tokenId}`,
       description: `A unique on-chain persona snapshot. This certificate represents a user's analyzed alignment.`,
       image: imageUri,
       attributes: [
         { trait_type: "Primary Trait", value: snapshot.primaryTrait },
-        // --- NEW: Add the random number as a trait ---
         {
-          trait_type: "Token Seed", // Or "VRF Number", "Lottery Number", etc.
+          trait_type: "Token Seed",
           value: randomNumberStr,
           display_type: "number",
         },
