@@ -1,3 +1,4 @@
+export const runtime = "nodejs";
 // src/app/api/persona/metadata/[tokenId]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
