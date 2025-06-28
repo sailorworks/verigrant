@@ -73,9 +73,14 @@ async function getPersonaImage(
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: { tokenId: string } }
+  // 1. UPDATE THE TYPE TO BE A PROMISE
+  { params }: { params: Promise<{ tokenId: string }> }
 ) {
-  const validation = routeParamsSchema.safeParse(params);
+  // 2. AWAIT THE PARAMS BEFORE USING THEM
+  const resolvedParams = await params;
+
+  // The rest of your code remains the same
+  const validation = routeParamsSchema.safeParse(resolvedParams);
   if (!validation.success) {
     return NextResponse.json({ error: "Invalid Token ID" }, { status: 400 });
   }
