@@ -17,12 +17,6 @@ type PersonaSnapshot = {
   exists: boolean;
 };
 
-type RouteContext = {
-  params: {
-    tokenId: string;
-  };
-};
-
 const {
   NEXT_PUBLIC_RPC_URL,
   NEXT_PUBLIC_PERSONA_REGISTRY_CONTRACT_ADDRESS,
@@ -77,8 +71,10 @@ async function getPersonaImage(
   return pngData.asPng();
 }
 
-export async function GET(req: NextRequest, context: RouteContext) {
-  const { params } = context; // Destructure inside the function body
+export async function GET(
+  req: NextRequest,
+  { params }: { params: { tokenId: string } }
+) {
   const validation = routeParamsSchema.safeParse(params);
   if (!validation.success) {
     return NextResponse.json({ error: "Invalid Token ID" }, { status: 400 });
