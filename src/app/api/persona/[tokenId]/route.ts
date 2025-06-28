@@ -17,9 +17,6 @@ type PersonaSnapshot = {
   exists: boolean;
 };
 
-// =================================================================
-// === THIS IS THE FIX: Define the context type explicitly ===
-// =================================================================
 type RouteContext = {
   params: {
     tokenId: string;
@@ -80,9 +77,6 @@ async function getPersonaImage(
   return pngData.asPng();
 }
 
-// =================================================================
-// === THIS IS THE FIX: Use the new type in the function signature ===
-// =================================================================
 export async function GET(req: NextRequest, context: RouteContext) {
   const { params } = context; // Destructure inside the function body
   const validation = routeParamsSchema.safeParse(params);
