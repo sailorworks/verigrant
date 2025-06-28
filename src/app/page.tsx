@@ -1,3 +1,4 @@
+// src/app/page.tsx
 "use client";
 
 import React, {
@@ -12,6 +13,7 @@ import {
   useSignMessage,
   useWriteContract,
   useWaitForTransactionReceipt,
+  useWatchContractEvent,
 } from "wagmi";
 import { toast, Toaster } from "sonner";
 import { GithubIcon, Trash, ShieldCheck, Award } from "lucide-react";
@@ -41,17 +43,21 @@ import {
   AlertDialogAction,
 } from "@/components/ui/alert-dialog";
 
-// *** NEW: Import the full ABI for the NFT contract ***
-import { personaNftFullAbi } from "@/lib/nft-abi";
+import { personaNftAbi } from "@/lib/nft-abi";
 
-// Type for the JSON data we get from our new API
 type SnapshotApiResponse = {
   exists: boolean;
-  // Add other fields if you need them in the frontend
 };
 
-// *** DELETED: The old, simple ABI is no longer needed ***
-// const personaNftAbi = ["function mint() external"];
+// =================================================================
+// === CHANGE #1: FIX THE TYPE DEFINITION ===
+// =================================================================
+type PersonaMintedLog = {
+  args: {
+    user?: `0x${string}`; // Changed from 'owner' to 'user'
+    tokenId?: bigint;
+  };
+};
 
 const nftContractAddress = process.env
   .NEXT_PUBLIC_NFT_CONTRACT_ADDRESS as `0x${string}`;
@@ -84,25 +90,25 @@ export default function AlignmentChartPage() {
   const { signMessageAsync } = useSignMessage();
 
   const {
-    data: writeContractHash,
+    data: requestNftHash,
     writeContract,
-    isPending: isMinting,
+    isPending: isRequesting,
+    reset,
   } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess: isConfirmed } =
-    useWaitForTransactionReceipt({ hash: writeContractHash });
 
-  // --- State to hold snapshot data fetched from our API ---
+  const { isLoading: isConfirmingRequest, isSuccess: isRequestConfirmed } =
+    useWaitForTransactionReceipt({ hash: requestNftHash });
+
+  const [isWaitingForFulfillment, setIsWaitingForFulfillment] = useState(false);
   const [snapshotData, setSnapshotData] = useState<SnapshotApiResponse | null>(
     null
   );
 
   const hasSnapshot = snapshotData?.exists ?? false;
-  const canMint = hasSnapshot;
+  const canRequestMint = hasSnapshot;
 
-  // --- Function to fetch data from our API proxy ---
   const fetchSnapshot = useCallback(async () => {
     if (!isConnected || !address) return;
-
     try {
       const response = await fetch(
         `/api/persona/get-snapshot?address=${address}`
@@ -112,67 +118,86 @@ export default function AlignmentChartPage() {
       setSnapshotData(data);
     } catch (error) {
       console.error("Error fetching snapshot:", error);
-      // Don't toast on every poll error, just log it
     }
   }, [address, isConnected]);
 
-  // Initial fetch
   useEffect(() => {
     fetchSnapshot();
   }, [fetchSnapshot]);
 
-  // Polling logic using our new fetch function
   useEffect(() => {
-    if (hasSnapshot) {
-      if (isWaitingForSnapshot) {
-        toast.success("On-chain snapshot confirmed!", {
-          description: "You are now eligible to mint your Persona NFT.",
-        });
-        setIsWaitingForSnapshot(false);
-      }
-      return;
-    }
-    if (isWaitingForSnapshot) {
-      const interval = setInterval(() => {
-        console.log("Polling for on-chain snapshot via API...");
-        fetchSnapshot();
-      }, 4000);
+    if (hasSnapshot && isWaitingForSnapshot) {
+      toast.success("On-chain snapshot confirmed!", {
+        description: "You are now eligible to mint your Persona NFT.",
+      });
+      setIsWaitingForSnapshot(false);
+    } else if (isWaitingForSnapshot) {
+      const interval = setInterval(() => fetchSnapshot(), 4000);
       return () => clearInterval(interval);
     }
   }, [isWaitingForSnapshot, hasSnapshot, fetchSnapshot]);
 
   useEffect(() => {
-    if (isConfirmed) {
-      toast.success("Persona NFT minted successfully!", {
-        description: "Your on-chain persona is now a unique collectible.",
-        action: {
-          label: "View on OpenSea",
-          onClick: () =>
-            window.open(
-              `https://testnets.opensea.io/assets/sepolia/${nftContractAddress}`,
-              "_blank"
-            ),
-        },
-      });
+    if (requestNftHash) {
+      console.log("Tx hash received:", requestNftHash);
     }
-  }, [isConfirmed]);
+  }, [requestNftHash]);
 
-  const handleMintNft = () => {
-    if (!canMint) {
+  useEffect(() => {
+    if (isRequestConfirmed) {
+      console.log("✅ Tx confirmed on-chain");
+      console.log("Setting isWaitingForFulfillment = true");
+      toast.success("NFT request sent successfully!", {
+        description:
+          "Waiting for the Chainlink Oracle to provide randomness and mint your NFT. This can take a minute.",
+      });
+      setIsWaitingForFulfillment(true);
+    }
+  }, [isRequestConfirmed]);
+
+  // =================================================================
+  // === CHANGE #2: FIX THE EVENT LISTENER LOGIC ===
+  // =================================================================
+  useWatchContractEvent({
+    address: nftContractAddress,
+    abi: personaNftAbi,
+    eventName: "PersonaMinted",
+    onLogs(logs) {
+      console.log("PersonaMinted logs:", logs);
+      const userLog = logs.find(
+        (log: PersonaMintedLog) =>
+          // Use 'log.args.user' to match the smart contract event
+          log.args.user?.toLowerCase() === address?.toLowerCase()
+      );
+      if (userLog && userLog.args.tokenId !== undefined) {
+        toast.success("Persona NFT Minted!", {
+          description: `Token #${userLog.args.tokenId.toString()} is yours!`,
+          action: {
+            label: "View on OpenSea",
+            onClick: () =>
+              window.open(
+                `https://testnets.opensea.io/asset/sepolia/${nftContractAddress}/${userLog.args.tokenId!.toString()}`,
+                "_blank"
+              ),
+          },
+        });
+        setIsWaitingForFulfillment(false);
+        reset();
+      }
+    },
+    enabled: isWaitingForFulfillment,
+  });
+
+  const handleRequestNft = () => {
+    if (!canRequestMint || !address) {
       toast.error("Not eligible to mint. A snapshot must be committed first.");
       return;
     }
-    // Good for debugging to ensure the function is called and the address is correct
-    console.log(
-      "Attempting to mint NFT with full ABI at address:",
-      nftContractAddress
-    );
 
     writeContract({
       address: nftContractAddress,
-      // *** UPDATED: Use the new, complete ABI ***
-      abi: personaNftFullAbi,
-      functionName: "mint",
+      abi: personaNftAbi,
+      functionName: "requestMint",
     });
   };
 
@@ -228,6 +253,7 @@ export default function AlignmentChartPage() {
     }
   };
 
+  // No changes to the rest of the file...
   const handleAddPlacement = (username: string, isAi: boolean) => {
     if (!isConnected) {
       toast.error("Please connect your wallet first to add profiles.");
@@ -254,7 +280,12 @@ export default function AlignmentChartPage() {
     [images]
   );
 
-  const isActionDisabled = isProcessing || isPageLoading;
+  const isActionDisabled =
+    isProcessing ||
+    isPageLoading ||
+    isRequesting ||
+    isConfirmingRequest ||
+    isWaitingForFulfillment;
 
   return (
     <>
@@ -282,16 +313,7 @@ export default function AlignmentChartPage() {
             onRemove={removePlacement}
           />
           <span className="text-center text-xs text-neutral-500 dark:text-neutral-400 max-w-md mt-2">
-            Inspired by{" "}
-            <a
-              href="https://x.com/rauchg/status/1899895262023467035"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline hover:text-purple-500"
-            >
-              rauchg
-            </a>
-            .
+            Inspired by a tweet.
             <a
               href="https://github.com/your-repo"
               target="_blank"
@@ -316,7 +338,6 @@ export default function AlignmentChartPage() {
                 !isConnected ||
                 isActionDisabled
               }
-              aria-label="Commit snapshot to blockchain"
             >
               <ShieldCheck className="!size-5 mr-0 sm:mr-2" />
               <span className="hidden sm:inline">
@@ -329,20 +350,21 @@ export default function AlignmentChartPage() {
             </Button>
           )}
 
-          {canMint && (
+          {canRequestMint && (
             <Button
-              onClick={handleMintNft}
+              onClick={handleRequestNft}
               size="lg"
               className="h-14 rounded-full shadow-lg bg-blue-600 hover:bg-blue-700 text-white"
-              disabled={isMinting || isConfirming || isActionDisabled}
-              aria-label="Mint your Persona NFT"
+              disabled={isActionDisabled}
             >
               <Award className="!size-5 mr-0 sm:mr-2" />
               <span className="hidden sm:inline">
-                {isConfirming
+                {isRequesting
+                  ? "Requesting..."
+                  : isConfirmingRequest
                   ? "Confirming..."
-                  : isMinting
-                  ? "Minting..."
+                  : isWaitingForFulfillment
+                  ? "Awaiting Oracle..."
                   : "Mint Persona NFT"}
               </span>
             </Button>
@@ -353,32 +375,24 @@ export default function AlignmentChartPage() {
               <Button
                 variant="outline"
                 size="lg"
-                className="h-14 rounded-full shadow-lg border-neutral-300 dark:border-neutral-600 hover:bg-red-500 hover:text-white dark:hover:bg-red-600 dark:text-neutral-100"
+                className="h-14 rounded-full shadow-lg"
                 disabled={images.length === 0 || isActionDisabled}
-                aria-label="Clear all placements"
               >
                 <Trash className="!size-5 mr-0 sm:mr-2" />
                 <span className="hidden sm:inline">Clear All</span>
               </Button>
             </AlertDialogTrigger>
-            <AlertDialogContent className="dark:bg-neutral-800 dark:border-neutral-700">
+            <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle className="dark:text-neutral-50">
-                  Are you sure?
-                </AlertDialogTitle>
-                <AlertDialogDescription className="dark:text-neutral-300">
+                <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                <AlertDialogDescription>
                   This will remove all {images.length} placement(s) from the
                   chart and local storage. This action cannot be undone.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel className="dark:bg-neutral-700 dark:border-neutral-600 dark:hover:bg-neutral-600 dark:text-neutral-50">
-                  Cancel
-                </AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={clearAllPlacements}
-                  className="bg-red-600 hover:bg-red-700 text-white"
-                >
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={clearAllPlacements}>
                   Yes, Clear All
                 </AlertDialogAction>
               </AlertDialogFooter>
@@ -388,10 +402,8 @@ export default function AlignmentChartPage() {
 
         {isPageLoading && (
           <div className="fixed inset-0 bg-black/20 dark:bg-black/50 backdrop-blur-sm flex flex-col items-center justify-center z-50">
-            <div className="h-10 w-10 animate-spin rounded-full border-4 border-solid border-purple-500 dark:border-purple-400 border-r-transparent mb-3"></div>
-            <p className="text-neutral-700 dark:text-neutral-200">
-              Loading your alignments...
-            </p>
+            <div className="h-10 w-10 animate-spin rounded-full border-4 border-solid border-purple-500 border-r-transparent mb-3"></div>
+            <p>Loading your alignments...</p>
           </div>
         )}
       </div>

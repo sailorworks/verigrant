@@ -1,22 +1,15 @@
 // src/lib/nft-abi.ts
 
-export const personaNftFullAbi = [
+export const personaNftAbi = [
   {
     inputs: [
       { internalType: "address", name: "_registryAddress", type: "address" },
+      { internalType: "address", name: "_vrfCoordinator", type: "address" },
+      { internalType: "bytes32", name: "_keyHash", type: "bytes32" },
+      { internalType: "uint256", name: "subscriptionId", type: "uint256" },
     ],
     stateMutability: "nonpayable",
     type: "constructor",
-  },
-  {
-    inputs: [{ internalType: "address", name: "owner", type: "address" }],
-    name: "OwnableInvalidOwner",
-    type: "error",
-  },
-  {
-    inputs: [{ internalType: "address", name: "account", type: "address" }],
-    name: "OwnableUnauthorizedAccount",
-    type: "error",
   },
   {
     anonymous: false,
@@ -66,6 +59,20 @@ export const personaNftFullAbi = [
   {
     anonymous: false,
     inputs: [
+      { indexed: true, internalType: "address", name: "user", type: "address" },
+      {
+        indexed: true,
+        internalType: "uint256",
+        name: "requestId",
+        type: "uint256",
+      },
+    ],
+    name: "MintRequested",
+    type: "event",
+  },
+  {
+    anonymous: false,
+    inputs: [
       {
         indexed: true,
         internalType: "address",
@@ -85,16 +92,17 @@ export const personaNftFullAbi = [
   {
     anonymous: false,
     inputs: [
-      {
-        indexed: true,
-        internalType: "address",
-        name: "owner",
-        type: "address",
-      },
+      { indexed: true, internalType: "address", name: "user", type: "address" },
       {
         indexed: true,
         internalType: "uint256",
         name: "tokenId",
+        type: "uint256",
+      },
+      {
+        indexed: false,
+        internalType: "uint256",
+        name: "seed",
         type: "uint256",
       },
     ],
@@ -117,13 +125,6 @@ export const personaNftFullAbi = [
     type: "event",
   },
   {
-    inputs: [{ internalType: "address", name: "to", type: "address" }],
-    name: "adminMint",
-    outputs: [],
-    stateMutability: "nonpayable",
-    type: "function",
-  },
-  {
     inputs: [
       { internalType: "address", name: "to", type: "address" },
       { internalType: "uint256", name: "tokenId", type: "uint256" },
@@ -137,6 +138,13 @@ export const personaNftFullAbi = [
     inputs: [{ internalType: "address", name: "owner", type: "address" }],
     name: "balanceOf",
     outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "callbackGasLimit",
+    outputs: [{ internalType: "uint32", name: "", type: "uint32" }],
     stateMutability: "view",
     type: "function",
   },
@@ -166,15 +174,22 @@ export const personaNftFullAbi = [
   },
   {
     inputs: [],
-    name: "mint",
-    outputs: [],
-    stateMutability: "nonpayable",
+    name: "keyHash",
+    outputs: [{ internalType: "bytes32", name: "", type: "bytes32" }],
+    stateMutability: "view",
     type: "function",
   },
   {
     inputs: [],
     name: "name",
     outputs: [{ internalType: "string", name: "", type: "string" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "numWords",
+    outputs: [{ internalType: "uint32", name: "", type: "uint32" }],
     stateMutability: "view",
     type: "function",
   },
@@ -208,6 +223,24 @@ export const personaNftFullAbi = [
     stateMutability: "nonpayable",
     type: "function",
   },
+  // =================================================================
+  // === THIS IS THE CORRECTED FUNCTION DEFINITION ===
+  // =================================================================
+  {
+    inputs: [], // <-- The 'inputs' array is now correctly empty
+    name: "requestMint",
+    outputs: [{ internalType: "uint256", name: "requestId", type: "uint256" }],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  // =================================================================
+  {
+    inputs: [],
+    name: "requestConfirmations",
+    outputs: [{ internalType: "uint16", name: "", type: "uint16" }],
+    stateMutability: "view",
+    type: "function",
+  },
   {
     inputs: [
       { internalType: "address", name: "from", type: "address" },
@@ -232,18 +265,18 @@ export const personaNftFullAbi = [
     type: "function",
   },
   {
+    inputs: [],
+    name: "s_subscriptionId",
+    outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
     inputs: [
       { internalType: "address", name: "operator", type: "address" },
       { internalType: "bool", name: "approved", type: "bool" },
     ],
     name: "setApprovalForAll",
-    outputs: [],
-    stateMutability: "nonpayable",
-    type: "function",
-  },
-  {
-    inputs: [{ internalType: "string", name: "baseURI_", type: "string" }],
-    name: "setBaseURI",
     outputs: [],
     stateMutability: "nonpayable",
     type: "function",
@@ -259,6 +292,13 @@ export const personaNftFullAbi = [
     inputs: [],
     name: "symbol",
     outputs: [{ internalType: "string", name: "", type: "string" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [{ internalType: "uint256", name: "", type: "uint256" }],
+    name: "tokenSeed",
+    outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
     stateMutability: "view",
     type: "function",
   },
@@ -283,13 +323,6 @@ export const personaNftFullAbi = [
   {
     inputs: [{ internalType: "address", name: "newOwner", type: "address" }],
     name: "transferOwnership",
-    outputs: [],
-    stateMutability: "nonpayable",
-    type: "function",
-  },
-  {
-    inputs: [],
-    name: "withdraw",
     outputs: [],
     stateMutability: "nonpayable",
     type: "function",

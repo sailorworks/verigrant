@@ -2,13 +2,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { ethers } from "ethers";
-// ABI is already updated
 import { personaRegistryEthersAbi } from "@/lib/persona-utils";
+// --- NEW: Import the NFT contract's ABI ---
+import { personaNftAbi } from "@/lib/nft-abi";
 import satori from "satori";
 import { Resvg } from "@resvg/resvg-js";
+// --- UPDATED: Import the certificate component ---
 import { PersonaCertificate } from "@/components/persona-certificate";
 
-// This type definition helps us manage the data internally.
 type PersonaSnapshot = {
   lawfulChaotic: number;
   goodEvil: number;
@@ -18,10 +19,7 @@ type PersonaSnapshot = {
   exists: boolean;
 };
 
-// The NFT contract ABI for finding the owner doesn't need to change.
-const personaNftAbi = [
-  "function ownerOf(uint256 tokenId) view returns (address)",
-];
+// --- REMOVED: The old, simple NFT ABI is replaced by the full one. ---
 
 const {
   NEXT_PUBLIC_RPC_URL,
@@ -35,10 +33,12 @@ const routeParamsSchema = z.object({
 
 async function getPersonaImage(
   snapshot: PersonaSnapshot,
-  username: string
+  username: string,
+  // --- NEW: Add randomNumber as a parameter ---
+  randomNumber: string
 ): Promise<Buffer> {
-  // This function doesn't need changes, it just consumes the data.
   const svg = await satori(
+    // --- UPDATED: Pass the new prop to the component ---
     PersonaCertificate({
       username: username,
       lawfulChaotic: snapshot.lawfulChaotic.toString(),
@@ -47,6 +47,7 @@ async function getPersonaImage(
       timestamp: new Date(
         Number(snapshot.timestamp) * 1000
       ).toLocaleDateString(),
+      randomNumber: randomNumber, // Pass it here
     }),
     {
       width: 600,
@@ -99,11 +100,14 @@ export async function GET(
   }
 
   const provider = new ethers.JsonRpcProvider(NEXT_PUBLIC_RPC_URL);
+
+  // --- UPDATED: Use the new full ABI for the NFT contract ---
   const nftContract = new ethers.Contract(
     NEXT_PUBLIC_NFT_CONTRACT_ADDRESS,
-    personaNftAbi,
+    personaNftAbi, // Use the full ABI
     provider
   );
+
   const registryContract = new ethers.Contract(
     NEXT_PUBLIC_PERSONA_REGISTRY_CONTRACT_ADDRESS,
     personaRegistryEthersAbi,
@@ -111,24 +115,28 @@ export async function GET(
   );
 
   try {
-    const ownerAddress = await nftContract.ownerOf(tokenId);
+    // --- Step 1: Get owner and random number from NFT Contract ---
+    // These calls can run in parallel for efficiency
+    const [ownerAddress, randomNumberResult] = await Promise.all([
+      nftContract.ownerOf(tokenId),
+      nftContract.tokenSeed(tokenId),
+    ]);
+
     if (ownerAddress === ethers.ZeroAddress) {
       return NextResponse.json({ error: "Token not found" }, { status: 404 });
     }
 
-    // --- UPDATED LOGIC ---
-    // 1. Call the new function `getPersonaSnapshot`.
+    // --- Step 2: Get persona data from Registry Contract ---
     const snapshotResult = await registryContract.getPersonaSnapshot(
       ownerAddress
     );
 
-    // 2. Reconstruct the snapshot object for the rest of the function to use.
     const snapshot: PersonaSnapshot = {
       lawfulChaotic: Number(snapshotResult.lawfulChaotic),
       goodEvil: Number(snapshotResult.goodEvil),
       reportHash: snapshotResult.reportHash,
       primaryTrait: snapshotResult.primaryTrait,
-      timestamp: snapshotResult.timestamp, // Is a BigInt
+      timestamp: snapshotResult.timestamp,
       exists: snapshotResult.exists,
     };
 
@@ -141,15 +149,29 @@ export async function GET(
     const ownerShort = `${ownerAddress.slice(0, 6)}...${ownerAddress.slice(
       -4
     )}`;
-    const imageBuffer = await getPersonaImage(snapshot, ownerShort);
+
+    // --- Step 3: Generate image with all the data ---
+    const randomNumberStr = randomNumberResult.toString();
+    const imageBuffer = await getPersonaImage(
+      snapshot,
+      ownerShort,
+      randomNumberStr
+    );
     const imageUri = `data:image/png;base64,${imageBuffer.toString("base64")}`;
 
+    // --- Step 4: Construct the final metadata JSON ---
     const metadata = {
       name: `Persona NFT #${tokenId}`,
       description: `A unique on-chain persona snapshot. This certificate represents a user's analyzed alignment.`,
       image: imageUri,
       attributes: [
         { trait_type: "Primary Trait", value: snapshot.primaryTrait },
+        // --- NEW: Add the random number as a trait ---
+        {
+          trait_type: "Token Seed", // Or "VRF Number", "Lottery Number", etc.
+          value: randomNumberStr,
+          display_type: "number",
+        },
         {
           trait_type: "Lawful vs. Chaotic",
           value: snapshot.lawfulChaotic,

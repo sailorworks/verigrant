@@ -9,12 +9,16 @@ export const PersonaCertificate = ({
   goodEvil,
   primaryTrait,
   timestamp,
+  // --- NEW: Add randomNumber to the component's props ---
+  randomNumber,
 }: {
   username: string;
   lawfulChaotic: string;
   goodEvil: string;
   primaryTrait: string;
   timestamp: string;
+  // --- NEW: Define the type for the new prop ---
+  randomNumber: string;
 }) => (
   <div
     style={{
@@ -39,7 +43,6 @@ export const PersonaCertificate = ({
       This certifies that the holder has recorded their persona on-chain.
     </div>
 
-    {/* --- THIS IS THE NEWLY ADDED LINE --- */}
     <div style={{ marginTop: "30px", fontSize: "18px", color: "#a1a1aa" }}>
       Holder: <span style={{ color: "white" }}>{username}</span>
     </div>
@@ -63,6 +66,17 @@ export const PersonaCertificate = ({
       >
         <span style={{ color: "#8b8b8b" }}>Primary Trait:</span>
         <span style={{ fontWeight: "bold" }}>{primaryTrait}</span>
+      </div>
+      {/* --- NEW: Display the random number on the certificate --- */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          marginBottom: "15px",
+        }}
+      >
+        <span style={{ color: "#8b8b8b" }}>Destiny Seed:</span>
+        <span style={{ fontWeight: "bold" }}>{randomNumber}</span>
       </div>
       <div
         style={{
