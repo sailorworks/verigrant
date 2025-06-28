@@ -1,6 +1,6 @@
 // src/lib/indexed-db.ts
 import type { AlignmentAnalysis } from "@/app/actions/analyze-tweets"; // Adjust path
-import type { Placement } from "@/app/page"; // This will be defined in page.tsx
+import type { Placement } from "@/app/types"; // This will be defined in page.tsx
 import { logger } from "./logger"; // Adjust path
 
 export interface StoredPlacement {
