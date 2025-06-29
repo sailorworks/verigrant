@@ -15,10 +15,10 @@ import path from "path";
 
 // --- NEW: Read font files from your project's assets ---
 const interRegularFont = fs.readFileSync(
-  path.join(process.cwd(), "src/assets/fonts/Inter-Regular.ttf")
+  path.join(process.cwd(), "src/assets/fonts/Inter_18pt-Regular.ttf")
 );
 const interBoldFont = fs.readFileSync(
-  path.join(process.cwd(), "src/assets/fonts/Inter-Bold.ttf")
+  path.join(process.cwd(), "src/assets/fonts/Inter_18pt-Bold.ttf")
 );
 
 type PersonaSnapshot = {
