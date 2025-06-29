@@ -8,6 +8,7 @@ import React, {
   useEffect,
   useCallback,
 } from "react";
+import Image from "next/image"; // --- ADDED IMPORT
 import {
   useAccount,
   useSignMessage,
@@ -16,7 +17,14 @@ import {
   useWatchContractEvent,
 } from "wagmi";
 import { toast, Toaster } from "sonner";
-import { GithubIcon, Trash, ShieldCheck, Award } from "lucide-react";
+import {
+  GithubIcon,
+  Trash,
+  ShieldCheck,
+  Award,
+  ArrowRight,
+  Sparkles,
+} from "lucide-react";
 import { logger } from "@/lib/logger";
 import type { PanelAnalysisItem } from "./types";
 
@@ -45,16 +53,56 @@ import {
 
 import { personaNftAbi } from "@/lib/nft-abi";
 
+// --- NEW: A self-contained component for the Logo ---
+const Logo = ({ showChart }: { showChart: boolean }) => {
+  const positionClasses = "fixed top-6 left-6 md:top-8 md:left-8 z-50";
+  const transitionClasses = "transition-all duration-500 ease-in-out";
+  const sizeClasses = showChart ? "w-20 h-20" : "w-32 h-32 md:w-40 md:h-40";
+
+  return (
+    <div className={`${positionClasses} ${sizeClasses} ${transitionClasses}`}>
+      <Image
+        src="/grant.png"
+        alt="Verigrant Logo"
+        fill
+        style={{ objectFit: "contain" }}
+        priority
+      />
+    </div>
+  );
+};
+
+// --- A self-contained component for the video hero section ---
+const VideoHeroSection = ({ onEnter }: { onEnter: () => void }) => (
+  <div className="relative flex items-center justify-center w-screen h-screen overflow-hidden">
+    <video
+      src="/herosection.mp4"
+      autoPlay
+      loop
+      muted
+      playsInline
+      className="absolute top-0 left-0 w-full h-full object-cover z-0"
+    />
+    <div className="absolute bottom-12 left-1/2 -translate-x-1/2 z-10">
+      <Button
+        onClick={onEnter}
+        className="bg-white text-black rounded-full h-14 px-8 text-lg font-semibold hover:bg-neutral-200 transition-colors duration-300 shadow-lg flex items-center"
+      >
+        <Sparkles className="mr-2 h-5 w-5" />
+        launch verigrant
+        <ArrowRight className="ml-2 h-5 w-5" />
+      </Button>
+    </div>
+  </div>
+);
+
 type SnapshotApiResponse = {
   exists: boolean;
 };
 
-// =================================================================
-// === CHANGE #1: FIX THE TYPE DEFINITION ===
-// =================================================================
 type PersonaMintedLog = {
   args: {
-    user?: `0x${string}`; // Changed from 'owner' to 'user'
+    user?: `0x${string}`;
     tokenId?: bigint;
   };
 };
@@ -63,6 +111,8 @@ const nftContractAddress = process.env
   .NEXT_PUBLIC_NFT_CONTRACT_ADDRESS as `0x${string}`;
 
 export default function AlignmentChartPage() {
+  const [showChart, setShowChart] = useState(false);
+
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<HTMLDivElement | null>(null);
 
@@ -155,9 +205,6 @@ export default function AlignmentChartPage() {
     }
   }, [isRequestConfirmed]);
 
-  // =================================================================
-  // === CHANGE #2: FIX THE EVENT LISTENER LOGIC ===
-  // =================================================================
   useWatchContractEvent({
     address: nftContractAddress,
     abi: personaNftAbi,
@@ -166,7 +213,6 @@ export default function AlignmentChartPage() {
       console.log("PersonaMinted logs:", logs);
       const userLog = logs.find(
         (log: PersonaMintedLog) =>
-          // Use 'log.args.user' to match the smart contract event
           log.args.user?.toLowerCase() === address?.toLowerCase()
       );
       if (userLog && userLog.args.tokenId !== undefined) {
@@ -253,7 +299,6 @@ export default function AlignmentChartPage() {
     }
   };
 
-  // No changes to the rest of the file...
   const handleAddPlacement = (username: string, isAi: boolean) => {
     if (!isConnected) {
       toast.error("Please connect your wallet first to add profiles.");
@@ -287,126 +332,138 @@ export default function AlignmentChartPage() {
     isConfirmingRequest ||
     isWaitingForFulfillment;
 
+  // --- NEW: MODIFIED RENDER LOGIC ---
   return (
     <>
-      <Toaster position="top-center" richColors />
-      <div className="fixed top-10 right-10 z-50">
-        <ConnectWalletButton />
-      </div>
+      <Logo showChart={showChart} />
 
-      <div
-        className="flex flex-col min-h-screen w-full overflow-x-hidden items-center pt-6 pb-28 md:pb-8 px-4 md:justify-center"
-        ref={containerRef}
-      >
-        <div className="flex flex-col items-center gap-5 md:gap-6 w-full max-w-3xl mt-10 md:mt-12">
-          <ActionToolbar
-            onAddPlacement={handleAddPlacement}
-            isProcessing={isProcessing}
-            isConnected={isConnected}
-          />
-          <AlignmentChart
-            chartRef={chartRef}
-            placements={images}
-            chartSize={chartSize}
-            imageSize={imageSize}
-            onDragStart={handleDragStart}
-            onRemove={removePlacement}
-          />
-          <span className="text-center text-xs text-neutral-500 dark:text-neutral-400 max-w-md mt-2">
-            Inspired by a tweet.
-            <a
-              href="https://github.com/your-repo"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block ml-2 align-middle"
-            >
-              <GithubIcon className="w-3 h-3" />
-            </a>
-          </span>
-        </div>
-
-        <AnalysisPanel analyses={panelAnalyses} newAnalysisId={newlyAnalyzedId}>
-          {!hasSnapshot && (
-            <Button
-              onClick={handleCommitSnapshot}
-              size="lg"
-              className="h-14 rounded-full shadow-lg bg-green-600 hover:bg-green-700 text-white"
-              disabled={
-                images.length === 0 ||
-                isCommitting ||
-                isWaitingForSnapshot ||
-                !isConnected ||
-                isActionDisabled
-              }
-            >
-              <ShieldCheck className="!size-5 mr-0 sm:mr-2" />
-              <span className="hidden sm:inline">
-                {isCommitting
-                  ? "Committing..."
-                  : isWaitingForSnapshot
-                  ? "Verifying..."
-                  : "Commit Snapshot"}
-              </span>
-            </Button>
-          )}
-
-          {canRequestMint && (
-            <Button
-              onClick={handleRequestNft}
-              size="lg"
-              className="h-14 rounded-full shadow-lg bg-blue-600 hover:bg-blue-700 text-white"
-              disabled={isActionDisabled}
-            >
-              <Award className="!size-5 mr-0 sm:mr-2" />
-              <span className="hidden sm:inline">
-                {isRequesting
-                  ? "Requesting..."
-                  : isConfirmingRequest
-                  ? "Confirming..."
-                  : isWaitingForFulfillment
-                  ? "Awaiting Oracle..."
-                  : "Mint Persona NFT"}
-              </span>
-            </Button>
-          )}
-
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button
-                variant="outline"
-                size="lg"
-                className="h-14 rounded-full shadow-lg"
-                disabled={images.length === 0 || isActionDisabled}
-              >
-                <Trash className="!size-5 mr-0 sm:mr-2" />
-                <span className="hidden sm:inline">Clear All</span>
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This will remove all {images.length} placement(s) from the
-                  chart and local storage. This action cannot be undone.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={clearAllPlacements}>
-                  Yes, Clear All
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        </AnalysisPanel>
-
-        {isPageLoading && (
-          <div className="fixed inset-0 bg-black/20 dark:bg-black/50 backdrop-blur-sm flex flex-col items-center justify-center z-50">
-            <div className="h-10 w-10 animate-spin rounded-full border-4 border-solid border-purple-500 border-r-transparent mb-3"></div>
-            <p>Loading your alignments...</p>
+      {!showChart ? (
+        <VideoHeroSection onEnter={() => setShowChart(true)} />
+      ) : (
+        <>
+          <Toaster position="top-center" richColors />
+          <div className="fixed top-10 right-10 z-50">
+            <ConnectWalletButton />
           </div>
-        )}
-      </div>
+
+          <div
+            className="flex flex-col min-h-screen w-full overflow-x-hidden items-center pt-6 pb-28 md:pb-8 px-4 md:justify-center"
+            ref={containerRef}
+          >
+            <div className="flex flex-col items-center gap-5 md:gap-6 w-full max-w-3xl mt-10 md:mt-12">
+              <ActionToolbar
+                onAddPlacement={handleAddPlacement}
+                isProcessing={isProcessing}
+                isConnected={isConnected}
+              />
+              <AlignmentChart
+                chartRef={chartRef}
+                placements={images}
+                chartSize={chartSize}
+                imageSize={imageSize}
+                onDragStart={handleDragStart}
+                onRemove={removePlacement}
+              />
+              <span className="text-center text-xs text-neutral-500 dark:text-neutral-400 max-w-md mt-2">
+                Inspired by a tweet.
+                <a
+                  href="https://github.com/your-repo"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-block ml-2 align-middle"
+                >
+                  <GithubIcon className="w-3 h-3" />
+                </a>
+              </span>
+            </div>
+
+            <AnalysisPanel
+              analyses={panelAnalyses}
+              newAnalysisId={newlyAnalyzedId}
+            >
+              {!hasSnapshot && (
+                <Button
+                  onClick={handleCommitSnapshot}
+                  size="lg"
+                  className="h-14 rounded-full shadow-lg bg-green-600 hover:bg-green-700 text-white"
+                  disabled={
+                    images.length === 0 ||
+                    isCommitting ||
+                    isWaitingForSnapshot ||
+                    !isConnected ||
+                    isActionDisabled
+                  }
+                >
+                  <ShieldCheck className="!size-5 mr-0 sm:mr-2" />
+                  <span className="hidden sm:inline">
+                    {isCommitting
+                      ? "Committing..."
+                      : isWaitingForSnapshot
+                      ? "Verifying..."
+                      : "Commit Snapshot"}
+                  </span>
+                </Button>
+              )}
+
+              {canRequestMint && (
+                <Button
+                  onClick={handleRequestNft}
+                  size="lg"
+                  className="h-14 rounded-full shadow-lg bg-blue-600 hover:bg-blue-700 text-white"
+                  disabled={isActionDisabled}
+                >
+                  <Award className="!size-5 mr-0 sm:mr-2" />
+                  <span className="hidden sm:inline">
+                    {isRequesting
+                      ? "Requesting..."
+                      : isConfirmingRequest
+                      ? "Confirming..."
+                      : isWaitingForFulfillment
+                      ? "Awaiting Oracle..."
+                      : "Mint Persona NFT"}
+                  </span>
+                </Button>
+              )}
+
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="lg"
+                    className="h-14 rounded-full shadow-lg"
+                    disabled={images.length === 0 || isActionDisabled}
+                  >
+                    <Trash className="!size-5 mr-0 sm:mr-2" />
+                    <span className="hidden sm:inline">Clear All</span>
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will remove all {images.length} placement(s) from the
+                      chart and local storage. This action cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={clearAllPlacements}>
+                      Yes, Clear All
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </AnalysisPanel>
+
+            {isPageLoading && (
+              <div className="fixed inset-0 bg-black/20 dark:bg-black/50 backdrop-blur-sm flex flex-col items-center justify-center z-50">
+                <div className="h-10 w-10 animate-spin rounded-full border-4 border-solid border-purple-500 border-r-transparent mb-3"></div>
+                <p>Loading your alignments...</p>
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </>
   );
 }
