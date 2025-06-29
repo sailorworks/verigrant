@@ -13,8 +13,7 @@ import { PersonaCertificate } from "@/components/persona-certificate";
 import fs from "fs";
 import path from "path";
 
-// --- NEW: Read font files once when the server starts ---
-// This is much more efficient and reliable than fetching.
+// --- NEW: Read font files from your project's assets ---
 const interRegularFont = fs.readFileSync(
   path.join(process.cwd(), "src/assets/fonts/Inter-Regular.woff2")
 );
@@ -61,16 +60,16 @@ async function getPersonaImage(
       width: 600,
       height: 400,
       fonts: [
-        // --- UPDATED: Use the local font data ---
+        // --- UPDATED: Use the local font data instead of fetching ---
         {
           name: "Inter",
-          data: interRegularFont, // Use the pre-loaded font
+          data: interRegularFont, // Use the pre-loaded font data
           weight: 400,
           style: "normal",
         },
         {
           name: "Inter",
-          data: interBoldFont, // Use the pre-loaded font
+          data: interBoldFont, // Use the pre-loaded font data
           weight: 700,
           style: "normal",
         },
@@ -82,13 +81,13 @@ async function getPersonaImage(
   return pngData.asPng();
 }
 
-// The GET function signature was fixed in a previous step, no changes needed here.
+// --- The GET function is kept exactly as you had it ---
 export async function GET(
   req: NextRequest,
-  { params }: { params: { tokenId: string } } // This simpler type works better in Vercel
+  { params }: { params: Promise<{ tokenId: string }> }
 ) {
-  // No need to await params with the simpler type
-  const validation = routeParamsSchema.safeParse(params);
+  const resolvedParams = await params;
+  const validation = routeParamsSchema.safeParse(resolvedParams);
 
   if (!validation.success) {
     return NextResponse.json({ error: "Invalid Token ID" }, { status: 400 });
