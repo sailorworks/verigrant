@@ -1,4 +1,5 @@
-// src/app/api/persona/[tokenId]/route.ts
+// src/app/api/persona/metadata/[tokenId]/route.ts
+
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { ethers } from "ethers";
@@ -7,6 +8,19 @@ import { personaNftAbi } from "@/lib/nft-abi";
 import satori from "satori";
 import { Resvg } from "@resvg/resvg-js";
 import { PersonaCertificate } from "@/components/persona-certificate";
+
+// --- NEW: Import Node.js modules to read local files ---
+import fs from "fs";
+import path from "path";
+
+// --- NEW: Read font files once when the server starts ---
+// This is much more efficient and reliable than fetching.
+const interRegularFont = fs.readFileSync(
+  path.join(process.cwd(), "src/assets/fonts/Inter-Regular.woff2")
+);
+const interBoldFont = fs.readFileSync(
+  path.join(process.cwd(), "src/assets/fonts/Inter-Bold.woff2")
+);
 
 type PersonaSnapshot = {
   lawfulChaotic: number;
@@ -47,19 +61,16 @@ async function getPersonaImage(
       width: 600,
       height: 400,
       fonts: [
+        // --- UPDATED: Use the local font data ---
         {
           name: "Inter",
-          data: await fetch(
-            "https://rsms.me/inter/font-files/Inter-Regular.woff"
-          ).then((res) => res.arrayBuffer()),
+          data: interRegularFont, // Use the pre-loaded font
           weight: 400,
           style: "normal",
         },
         {
           name: "Inter",
-          data: await fetch(
-            "https://rsms.me/inter/font-files/Inter-Bold.woff"
-          ).then((res) => res.arrayBuffer()),
+          data: interBoldFont, // Use the pre-loaded font
           weight: 700,
           style: "normal",
         },
@@ -71,16 +82,14 @@ async function getPersonaImage(
   return pngData.asPng();
 }
 
+// The GET function signature was fixed in a previous step, no changes needed here.
 export async function GET(
   req: NextRequest,
-  // 1. UPDATE THE TYPE TO BE A PROMISE
-  { params }: { params: Promise<{ tokenId: string }> }
+  { params }: { params: { tokenId: string } } // This simpler type works better in Vercel
 ) {
-  // 2. AWAIT THE PARAMS BEFORE USING THEM
-  const resolvedParams = await params;
+  // No need to await params with the simpler type
+  const validation = routeParamsSchema.safeParse(params);
 
-  // The rest of your code remains the same
-  const validation = routeParamsSchema.safeParse(resolvedParams);
   if (!validation.success) {
     return NextResponse.json({ error: "Invalid Token ID" }, { status: 400 });
   }
