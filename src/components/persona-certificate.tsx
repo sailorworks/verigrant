@@ -1,5 +1,3 @@
-// src/components/persona-certificate.tsx
-
 import React from "react";
 
 // This is a React component that will be rendered into an SVG by Satori
@@ -9,7 +7,6 @@ export const PersonaCertificate = ({
   goodEvil,
   primaryTrait,
   timestamp,
-  // --- NEW: Add randomNumber to the component's props ---
   randomNumber,
 }: {
   username: string;
@@ -17,7 +14,6 @@ export const PersonaCertificate = ({
   goodEvil: string;
   primaryTrait: string;
   timestamp: string;
-  // --- NEW: Define the type for the new prop ---
   randomNumber: string;
 }) => (
   <div
@@ -43,8 +39,18 @@ export const PersonaCertificate = ({
       This certifies that the holder has recorded their persona on-chain.
     </div>
 
-    <div style={{ marginTop: "30px", fontSize: "18px", color: "#a1a1aa" }}>
-      Holder: <span style={{ color: "white" }}>{username}</span>
+    {/* --- FIX #1: Added display: 'flex' and wrapped text in spans --- */}
+    <div
+      style={{
+        display: "flex", // <-- ADD THIS
+        gap: "8px", // <-- Optional but good for spacing
+        marginTop: "30px",
+        fontSize: "18px",
+        color: "#a1a1aa",
+      }}
+    >
+      <span>Holder:</span>
+      <span style={{ color: "white" }}>{username}</span>
     </div>
 
     <div
@@ -67,7 +73,6 @@ export const PersonaCertificate = ({
         <span style={{ color: "#8b8b8b" }}>Primary Trait:</span>
         <span style={{ fontWeight: "bold" }}>{primaryTrait}</span>
       </div>
-      {/* --- NEW: Display the random number on the certificate --- */}
       <div
         style={{
           display: "flex",
@@ -93,8 +98,19 @@ export const PersonaCertificate = ({
         <span style={{ fontWeight: "bold" }}>{goodEvil}</span>
       </div>
     </div>
-    <div style={{ marginTop: "auto", fontSize: "16px", color: "#555" }}>
-      Committed on: {timestamp}
+
+    {/* --- FIX #2: Added display: 'flex' and wrapped text in spans --- */}
+    <div
+      style={{
+        display: "flex", // <-- ADD THIS
+        gap: "8px", // <-- Optional but good for spacing
+        marginTop: "auto",
+        fontSize: "16px",
+        color: "#555",
+      }}
+    >
+      <span>Committed on:</span>
+      <span>{timestamp}</span>
     </div>
   </div>
 );
